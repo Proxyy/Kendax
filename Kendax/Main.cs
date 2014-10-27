@@ -2,11 +2,14 @@
 using Sulakore;
 using System.Linq;
 using Sulakore.Habbo;
+using System.Drawing;
+using Kendax.Services;
 using System.Windows.Forms;
+using Sulakore.Communication;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Sulakore.Protocol.Encryption;
-using Sulakore.Communication;
+using Sulakore.Protocol;
 
 namespace Kendax
 {
@@ -20,117 +23,88 @@ namespace Kendax
         private const int EXPONENT = 3;
         private const string MODULUS = "90e0d43db75b5b8ffc8a77e31cc9758fa43fe69f14184bef64e61574beb18fac32520566f6483b246ddc3c991cb366bae975a6f6b733fd9570e8e72efc1e511ff6e2bcac49bf9237222d7c2bf306300d4dfc37113bcc84fa4401c9e4f2b4c41ade9654ef00bd592944838fae21a05ea59fecc961766740c82d84f4299dfb33dd";
 
-        private readonly Dictionary<string, HHotels> _accountEmails;
-        private readonly Dictionary<ListViewItem, HSession> _sessions;
-        private readonly Dictionary<HSession, HKeyExchange> _exchanges;
-        private readonly Dictionary<HSession, ListViewItem> _runningConnections;
+        private readonly Dictionary<ListViewItem, HSession> _accountItems;
+        private readonly Dictionary<HSession, BotSession> _accountConnections;
         #endregion
 
         #region Constructor(s)
-        public Main()
+        public Main(string[] args)
         {
             InitializeComponent();
 
             _aSprite = "...";
 
-            _accountEmails = new Dictionary<string, HHotels>();
-            _sessions = new Dictionary<ListViewItem, HSession>();
-            _exchanges = new Dictionary<HSession, HKeyExchange>();
-            _runningConnections = new Dictionary<HSession, ListViewItem>();
+            _accountItems = new Dictionary<ListViewItem, HSession>();
+            _accountConnections = new Dictionary<HSession, BotSession>();
+
+            if (args.Length > 0)
+                OnDragDrop(new DragEventArgs(new DataObject(DataFormats.FileDrop, args), 0, 0, 0, (DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link), DragDropEffects.Copy));
+        }
+        #endregion
+
+        #region Connection Event Listeners
+        private void Session_OnConnected(object sender, EventArgs e)
+        {
+            HSession session = (HSession)sender;
+            BotSession botSession = _accountConnections[session];
+
+            session.SendToServer(4000, session.FlashClientBuild);
+            session.SendToServer(3291);
+
+            SessionViewer.BeginInvoke(new MethodInvoker(() => botSession.SessionItem.SubItems[3].Text = "Agreeing..."));
+        }
+        private void Session_OnDisconnected(object sender, DisconnectedEventArgs e)
+        {
+            HSession session = (HSession)sender;
+            BotSession botSession = _accountConnections[session];
+
+            e.UnsubscribeFromEvents = true;
+            bool isLoggedIn = session.IsLoggedIn;
+            botSession.SessionItem.SubItems[3].Text = isLoggedIn ? "Authenticated" : "Inactive";
+            _accountConnections.Remove(session);
+        }
+        private void Session_DataToClient(object sender, DataToEventArgs e)
+        {
+            HSession session = (HSession)sender;
+            BotSession botSession = _accountConnections[session];
+
+            switch (e.Step)
+            {
+                case 1:
+                {
+                    botSession.Exchange = new HKeyExchange(EXPONENT, MODULUS);
+                    botSession.Exchange.DoHandshake(e.Packet.ReadString(), e.Packet.ReadString());
+
+                    session.SendToServer(3848, botSession.Exchange.PublicKey);
+                    break;
+                }
+                case 2:
+                {
+                    session.ReceiveData = false;
+
+                    byte[] SharedKey = botSession.Exchange.GetSharedKey(e.Packet.ReadString());
+                    session.ClientEncrypt = new Rc4(SharedKey);
+                    session.ServerDecrypt = new Rc4(SharedKey);
+
+                    session.SendToServer(3342, 401, session.FlashClientUrl, session.GameData.Variables);
+                    session.SendToServer(1788, session.SsoTicket, -1);
+
+                    SessionViewer.BeginInvoke(new MethodInvoker(() => botSession.SessionItem.SubItems[3].Text = "Connected"));
+                    BeginInvoke(new MethodInvoker(() => Text = string.Format("Kendax ~ Sessions Connected[{0}/{1}] | Selected: {2}", _accountConnections.Count, _accountItems.Count, SessionViewer.SelectedItems.Count)));
+                    break;
+                }
+            }
         }
         #endregion
 
         #region User Interface Event Listeners
-        private async void LoginBtn_Click(object sender, EventArgs e)
+        private void LoginBtn_Click(object sender, EventArgs e)
         {
-            if (SessionViewer.SelectedItems.Count == 0 && !AllSessionsChckbx.Checked) return;
 
-            StartAnimation("Buffering Account List");
-            ListViewItem[] sessions = AllSessionsChckbx.Checked ? SessionViewer.Items.Cast<ListViewItem>().ToArray() : new[] { SessionViewer.SelectedItems[0] };
-            SetAnimation(string.Format("Authenticating% | (1/{0})", sessions.Length));
-
-            int loginCount = 1, loginsFailed = 0, loginsSucceeded = 0;
-            bool isMultiple = sessions.Length > 1;
-            await Task.WhenAll(sessions.Select(async session =>
-            {
-                HSession account = _sessions[session];
-                if (await account.LoginAsync())
-                {
-                    loginsSucceeded++;
-
-                    session.SubItems[0].Text = account.PlayerName;
-                    session.SubItems[1].Text = account.PlayerId.ToString();
-                    session.SubItems[3].Text = "Authenticated";
-                    session.ToolTipText = string.Format("Player Name: {0}\nPlayer ID#: {1}\nPlayer Email: {2}", account.PlayerName, account.PlayerId, account.Email);
-
-                    SessionViewer.Focus();
-                    SessionViewer.EnsureVisible(session.Index);
-
-                    Text = string.Format("Kendax ~ Sessions Connected[{0}/{1}]", _exchanges.Count, _accountEmails.Count);
-                }
-                else loginsFailed++;
-
-                if (++loginCount >= sessions.Length) StopAnimation(string.Format("Login(s) Succeeded! | ({0}/{1})", sessions.Length - loginsFailed, sessions.Length));
-                else SetAnimation(string.Format("Authenticating% | ({0}/{1})", loginCount, sessions.Length));
-            }));
-
-            if (loginsSucceeded > 0) ConnectBtn.Enabled = true;
         }
         private void ConnectBtn_Click(object sender, EventArgs e)
         {
-            if (SessionViewer.SelectedItems.Count == 0 && !AllSessionsChckbx.Checked) return;
 
-            ListViewItem[] sessions = AllSessionsChckbx.Checked
-                ? SessionViewer.Items.Cast<ListViewItem>().Where(session => session.SubItems[3].Text == "Authenticated").ToArray()
-                : new[] { SessionViewer.SelectedItems[0] };
-            StartAnimation(string.Format("Connecting% | (1/{0})", sessions.Length));
-
-            Task.Factory.StartNew(async () =>
-            {
-                int connectCount = 1, connectsFailed = 0, connectsSucceeded = 0;
-                foreach (ListViewItem session in sessions)
-                {
-                    bool connected;
-                    HSession account = _sessions[session];
-                    SessionViewer.BeginInvoke(new Action(() => { session.SubItems[3].Text = "Connecting..."; }));
-
-                    await account.ConnectAsync();
-                    if (connected = account.IsConnected)
-                    {
-                        connectsSucceeded++;
-                        account.DataToClient += Bot_DataToClient;
-                        account.OnDisconnected += Bot_Disconnected;
-
-                        _runningConnections[account] = session;
-
-                        _exchanges[account] = new HKeyExchange(EXPONENT, MODULUS);
-                        account.SendToServer(4000, account.FlashClientBuild);
-                        account.SendToServer(946);
-                    }
-                    else
-                    {
-                        connectsFailed++;
-                        account.Disconnect(true);
-                    }
-
-                    SessionViewer.BeginInvoke(new Action(() =>
-                    {
-                        if (connected)
-                        {
-                            session.SubItems[3].Text = "Agreeing...";
-                            SessionViewer.Focus();
-                            SessionViewer.EnsureVisible(session.Index);
-                        }
-                        else session.SubItems[3].Text = "Authenticated";
-                    }));
-
-                    BeginInvoke(new Action(() =>
-                    {
-                        if (++connectCount >= sessions.Length) StopAnimation(string.Format("Connection(s) Established! | ({0}/{1})", sessions.Length - connectsFailed, sessions.Length));
-                        else SetAnimation(string.Format("Connecting% | ({0}/{1})", connectCount, sessions.Length));
-                    }));
-                }
-            });
         }
 
         private void SessionViewer_DragEnter(object sender, DragEventArgs e)
@@ -143,35 +117,88 @@ namespace Kendax
             if (e.Effect != DragDropEffects.Copy) return;
 
             StartAnimation("Extracting Sessions");
-            HSession[] accounts = await HSession.ExtractAsync(((string[])(e.Data.GetData(DataFormats.FileDrop)))[0]);
-            SetAnimation(string.Format("Filtering Duplicates% | (1/{0})", accounts.Length));
+            HSession[] sessions = await HSession.ExtractAsync(((string[])(e.Data.GetData(DataFormats.FileDrop)))[0]);
+            SetAnimation(string.Format("Filtering Duplicates% | (1/{0})", sessions.Length));
 
             var verified = 0;
             SessionViewer.BeginUpdate();
-            for (var i = 0; i < accounts.Length; i++)
+            for (int i = 0; i < sessions.Length; i++)
             {
-                HSession account = accounts[i];
-                if (await Task.Run(() => AddAccount(account)))
+                HSession session = sessions[i];
+                SetAnimation(string.Format("Filtering Duplicates% | ({0}/{1})", i + 1, sessions.Length));
+
+                if (await Task.Run(() => !IsAlreadyVerified(session)))
                 {
                     verified++;
-                    var session = new ListViewItem(new[] { string.Empty, string.Empty, account.Email, "Waiting..." });
-                    session.ToolTipText = "Player Name: < ? >\nPlayer ID#: < ? >\nPlayer Email: " + account.Email;
 
-                    _sessions.Add(session, account);
-                    SessionViewer.Items.Add(session);
+                    var accountItem = new ListViewItem(new[] { string.Empty, string.Empty, session.Email, "Inactive" });
+                    SessionViewer.Items.Add(accountItem);
+                    _accountItems.Add(accountItem, session);
+
                 }
-                SetAnimation(string.Format("Filtering Duplicates% | ({0}/{1})", i + 1, accounts.Length));
             }
             SessionViewer.EndUpdate();
+            StopAnimation(string.Format("Sessions Loaded! - ({0}/{1})", verified, sessions.Length));
+        }
 
-            if (_sessions.Count >= 1)
+        private void SelectAllBtn_Click(object sender, EventArgs e)
+        {
+            SelectAllSessions();
+        }
+        private void SessionViewer_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Control && e.KeyCode == Keys.A)
+                SelectAllSessions();
+        }
+
+        private async void SessionViewer_ItemActivate(object sender, EventArgs e)
+        {
+            ListViewItem accountItem = SessionViewer.SelectedItems[0];
+            HSession session = _accountItems[accountItem];
+
+            ListViewItem.ListViewSubItem nameItem = accountItem.SubItems[0];
+            ListViewItem.ListViewSubItem idItem = accountItem.SubItems[1];
+            ListViewItem.ListViewSubItem emailItem = accountItem.SubItems[2];
+            ListViewItem.ListViewSubItem statusItem = accountItem.SubItems[3];
+
+            switch (statusItem.Text)
             {
-                LoginBtn.Enabled = true;
-                AllSessionsChckbx.Enabled = true;
-            }
+                case "Inactive":
+                {
+                    statusItem.Text = "Logging In...";
+                    if (await session.LoginAsync())
+                    {
+                        nameItem.Text = session.PlayerName;
+                        idItem.Text = session.PlayerId.ToString();
+                        statusItem.Text = "Authenticated";
+                    }
+                    else statusItem.Text = "Inactive";
+                    break;
+                }
+                case "Authenticated":
+                {
+                    statusItem.Text = "Connecting...";
 
-            Text = string.Format("Kendax ~ Sessions Connected[{0}/{1}]", _exchanges.Count, verified);
-            StopAnimation(string.Format("Sessions Loaded! - ({0}/{1})", verified, accounts.Length));
+                    _accountConnections.Add(session, new BotSession(accountItem));
+
+                    session.DataToClient += Session_DataToClient;
+                    session.OnConnected += Session_OnConnected;
+                    session.OnDisconnected += Session_OnDisconnected;
+                    session.Connect();
+                    break;
+                }
+            }
+        }
+
+        private void SessionViewer_ColumnWidthChanging(object sender, ColumnWidthChangingEventArgs e)
+        {
+            e.Cancel = true;
+            e.NewWidth = SessionViewer.Columns[e.ColumnIndex].Width;
+        }
+        private void SessionViewer_ItemSelectionChanged(object sender, ListViewItemSelectionChangedEventArgs e)
+        {
+            Text = string.Format("Kendax ~ Sessions Connected[{0}/{1}] | Selected: {2}", _accountConnections.Count, _accountItems.Count, SessionViewer.SelectedItems.Count);
+            LoginBtn.Enabled = SessionViewer.SelectedItems.Count > 0;
         }
 
         private void ATimer_Tick(object sender, EventArgs e)
@@ -179,30 +206,24 @@ namespace Kendax
             StatusLbl.Text = _aStatus.Replace("%", _aSprite.Substring(0, _aTick + 1));
             _aTick += _aTick == 2 ? -2 : 1;
         }
-        private void SessionViewer_ColumnWidthChanging(object sender, ColumnWidthChangingEventArgs e)
-        {
-            e.Cancel = true;
-            e.NewWidth = SessionViewer.Columns[e.ColumnIndex].Width;
-        }
         #endregion
 
         #region Private Methods
-        private bool AddAccount(HSession account)
+        private void SelectAllSessions()
         {
-            if (IsAlreadyVerified(account)) return false;
-            _accountEmails.Add(account.Email, account.Hotel);
-            return true;
+            ListViewItem[] accountItems = SessionViewer.Items.Cast<ListViewItem>().ToArray();
+            foreach (ListViewItem accountItem in accountItems)
+                accountItem.Selected = true;
         }
-        private bool RemoveAccount(HSession account)
+        private bool IsAlreadyVerified(HSession session)
         {
-            if (!IsAlreadyVerified(account)) return false;
-            _accountEmails.Remove(account.Email);
-            return true;
-        }
-        private bool IsAlreadyVerified(HSession account)
-        {
-            if (account == null) return true;
-            return _accountEmails.ContainsKey(account.Email) && _accountEmails[account.Email] == account.Hotel;
+            if (session == null) return true;
+
+            HSession[] sessions = _accountItems.Values.ToArray();
+            foreach (HSession _session in sessions)
+                if (_session.Equals(session)) return true;
+
+            return false;
         }
 
         private void SetAnimation(string status)
@@ -222,36 +243,13 @@ namespace Kendax
             _aStatus = status;
             ATimer.Start();
         }
-
-        private void Bot_OnConnected(object sender, EventArgs e)
-        {
-            //throw new NotImplementedException();
-        }
-        private void Bot_DataToClient(object sender, DataToEventArgs e)
-        {
-            //MessageBox.Show(e.Packet.ToString());
-        }
-        private async void Bot_Disconnected(object sender, DisconnectedEventArgs e)
-        {
-            HSession account = (HSession)sender;
-            e.UnsubscribeFromEvents = true;
-
-            if (_runningConnections.ContainsKey(account))
-            {
-                ListViewItem session = _runningConnections[account];
-                _runningConnections.Remove(account);
-
-                bool isLoggedIn = await Task.Run(() => account.IsLoggedIn);
-                session.SubItems[3].Text = isLoggedIn ? "Authenticated" : "Waiting...";
-
-                if (!isLoggedIn)
-                {
-                    session.SubItems[0].Text = string.Empty;
-                    session.SubItems[1].Text = string.Empty;
-                    session.ToolTipText = "Player Name: < ? >\nPlayer ID#: < ? >\nPlayer Email: " + account.Email;
-                }
-            }
-        }
         #endregion
+
+        private void SendToAll(byte[] Data)
+        {
+            HSession[] sessions = _accountConnections.Keys.Where(x => x.IsConnected).ToArray();
+            foreach (HSession session in sessions)
+                session.SendToServer(Data);
+        }
     }
 }

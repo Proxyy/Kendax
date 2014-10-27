@@ -32,10 +32,12 @@
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Main));
             this.StatusLbl = new System.Windows.Forms.Label();
             this.ATimer = new System.Windows.Forms.Timer(this.components);
+            this.SessionMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.SessionMenuSplitter = new System.Windows.Forms.ToolStripSeparator();
+            this.SelectAllBtn = new System.Windows.Forms.ToolStripMenuItem();
             this.kendaxTabControl1 = new Kendax.Components.KendaxTabControl();
             this.tabPage1 = new System.Windows.Forms.TabPage();
             this.ConnectBtn = new System.Windows.Forms.Button();
-            this.AllSessionsChckbx = new System.Windows.Forms.CheckBox();
             this.LoginBtn = new System.Windows.Forms.Button();
             this.panel1 = new System.Windows.Forms.Panel();
             this.pictureBox1 = new System.Windows.Forms.PictureBox();
@@ -45,6 +47,7 @@
             this.columnHeader3 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader4 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.tabPage2 = new System.Windows.Forms.TabPage();
+            this.SessionMenu.SuspendLayout();
             this.kendaxTabControl1.SuspendLayout();
             this.tabPage1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).BeginInit();
@@ -64,6 +67,26 @@
             // 
             this.ATimer.Interval = 200;
             this.ATimer.Tick += new System.EventHandler(this.ATimer_Tick);
+            // 
+            // SessionMenu
+            // 
+            this.SessionMenu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.SessionMenuSplitter,
+            this.SelectAllBtn});
+            this.SessionMenu.Name = "SessionMenu";
+            this.SessionMenu.Size = new System.Drawing.Size(123, 32);
+            // 
+            // SessionMenuSplitter
+            // 
+            this.SessionMenuSplitter.Name = "SessionMenuSplitter";
+            this.SessionMenuSplitter.Size = new System.Drawing.Size(119, 6);
+            // 
+            // SelectAllBtn
+            // 
+            this.SelectAllBtn.Name = "SelectAllBtn";
+            this.SelectAllBtn.Size = new System.Drawing.Size(122, 22);
+            this.SelectAllBtn.Text = "Select All";
+            this.SelectAllBtn.Click += new System.EventHandler(this.SelectAllBtn_Click);
             // 
             // kendaxTabControl1
             // 
@@ -85,7 +108,6 @@
             // tabPage1
             // 
             this.tabPage1.Controls.Add(this.ConnectBtn);
-            this.tabPage1.Controls.Add(this.AllSessionsChckbx);
             this.tabPage1.Controls.Add(this.LoginBtn);
             this.tabPage1.Controls.Add(this.panel1);
             this.tabPage1.Controls.Add(this.pictureBox1);
@@ -101,31 +123,20 @@
             // ConnectBtn
             // 
             this.ConnectBtn.Enabled = false;
-            this.ConnectBtn.Location = new System.Drawing.Point(337, 93);
+            this.ConnectBtn.Location = new System.Drawing.Point(321, 93);
             this.ConnectBtn.Name = "ConnectBtn";
-            this.ConnectBtn.Size = new System.Drawing.Size(92, 23);
+            this.ConnectBtn.Size = new System.Drawing.Size(108, 23);
             this.ConnectBtn.TabIndex = 5;
             this.ConnectBtn.Text = "Connect";
             this.ConnectBtn.UseVisualStyleBackColor = true;
             this.ConnectBtn.Click += new System.EventHandler(this.ConnectBtn_Click);
             // 
-            // AllSessionsChckbx
-            // 
-            this.AllSessionsChckbx.AutoSize = true;
-            this.AllSessionsChckbx.Enabled = false;
-            this.AllSessionsChckbx.Location = new System.Drawing.Point(347, 6);
-            this.AllSessionsChckbx.Name = "AllSessionsChckbx";
-            this.AllSessionsChckbx.Size = new System.Drawing.Size(82, 17);
-            this.AllSessionsChckbx.TabIndex = 4;
-            this.AllSessionsChckbx.Text = "All Sessions";
-            this.AllSessionsChckbx.UseVisualStyleBackColor = true;
-            // 
             // LoginBtn
             // 
             this.LoginBtn.Enabled = false;
-            this.LoginBtn.Location = new System.Drawing.Point(195, 93);
+            this.LoginBtn.Location = new System.Drawing.Point(202, 93);
             this.LoginBtn.Name = "LoginBtn";
-            this.LoginBtn.Size = new System.Drawing.Size(136, 23);
+            this.LoginBtn.Size = new System.Drawing.Size(113, 23);
             this.LoginBtn.TabIndex = 3;
             this.LoginBtn.Text = "Login/Authenticate";
             this.LoginBtn.UseVisualStyleBackColor = true;
@@ -153,18 +164,18 @@
             // 
             // SessionViewer
             // 
-            this.SessionViewer.AllowDrop = true;
             this.SessionViewer.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
             this.columnHeader1,
             this.columnHeader2,
             this.columnHeader3,
             this.columnHeader4});
+            this.SessionViewer.ContextMenuStrip = this.SessionMenu;
             this.SessionViewer.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.SessionViewer.FullRowSelect = true;
             this.SessionViewer.GridLines = true;
+            this.SessionViewer.HeaderStyle = System.Windows.Forms.ColumnHeaderStyle.Nonclickable;
             this.SessionViewer.HideSelection = false;
             this.SessionViewer.Location = new System.Drawing.Point(3, 122);
-            this.SessionViewer.MultiSelect = false;
             this.SessionViewer.Name = "SessionViewer";
             this.SessionViewer.ShowItemToolTips = true;
             this.SessionViewer.Size = new System.Drawing.Size(429, 218);
@@ -172,8 +183,9 @@
             this.SessionViewer.UseCompatibleStateImageBehavior = false;
             this.SessionViewer.View = System.Windows.Forms.View.Details;
             this.SessionViewer.ColumnWidthChanging += new System.Windows.Forms.ColumnWidthChangingEventHandler(this.SessionViewer_ColumnWidthChanging);
-            this.SessionViewer.DragDrop += new System.Windows.Forms.DragEventHandler(this.SessionViewer_DragDrop);
-            this.SessionViewer.DragEnter += new System.Windows.Forms.DragEventHandler(this.SessionViewer_DragEnter);
+            this.SessionViewer.ItemActivate += new System.EventHandler(this.SessionViewer_ItemActivate);
+            this.SessionViewer.ItemSelectionChanged += new System.Windows.Forms.ListViewItemSelectionChangedEventHandler(this.SessionViewer_ItemSelectionChanged);
+            this.SessionViewer.KeyDown += new System.Windows.Forms.KeyEventHandler(this.SessionViewer_KeyDown);
             // 
             // columnHeader1
             // 
@@ -207,6 +219,7 @@
             // 
             // Main
             // 
+            this.AllowDrop = true;
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.White;
@@ -218,10 +231,12 @@
             this.MaximizeBox = false;
             this.Name = "Main";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "Kendax ~ Sessions Connected[0/0]";
+            this.Text = "Kendax ~ Sessions Connected[0/0] | Selected: 0";
+            this.DragDrop += new System.Windows.Forms.DragEventHandler(this.SessionViewer_DragDrop);
+            this.DragEnter += new System.Windows.Forms.DragEventHandler(this.SessionViewer_DragEnter);
+            this.SessionMenu.ResumeLayout(false);
             this.kendaxTabControl1.ResumeLayout(false);
             this.tabPage1.ResumeLayout(false);
-            this.tabPage1.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).EndInit();
             this.ResumeLayout(false);
 
@@ -241,9 +256,11 @@
         private System.Windows.Forms.ColumnHeader columnHeader4;
         private System.Windows.Forms.Panel panel1;
         private System.Windows.Forms.Timer ATimer;
-        private System.Windows.Forms.CheckBox AllSessionsChckbx;
         private System.Windows.Forms.Button LoginBtn;
         private System.Windows.Forms.Button ConnectBtn;
+        private System.Windows.Forms.ContextMenuStrip SessionMenu;
+        private System.Windows.Forms.ToolStripSeparator SessionMenuSplitter;
+        private System.Windows.Forms.ToolStripMenuItem SelectAllBtn;
     }
 }
 
