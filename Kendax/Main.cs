@@ -209,6 +209,13 @@ namespace Kendax
         #endregion
 
         #region Private Methods
+        private void SendToAll(byte[] Data)
+        {
+            HSession[] sessions = _accountConnections.Keys.Where(x => x.IsConnected).ToArray();
+            foreach (HSession session in sessions)
+                session.SendToServer(Data);
+        }
+
         private void SelectAllSessions()
         {
             ListViewItem[] accountItems = SessionViewer.Items.Cast<ListViewItem>().ToArray();
@@ -245,11 +252,5 @@ namespace Kendax
         }
         #endregion
 
-        private void SendToAll(byte[] Data)
-        {
-            HSession[] sessions = _accountConnections.Keys.Where(x => x.IsConnected).ToArray();
-            foreach (HSession session in sessions)
-                session.SendToServer(Data);
-        }
     }
 }
